@@ -136,9 +136,7 @@ architecture arch_imp of full_radio_v1_0_S00_AXI is
         s_axis_phase_tvalid : IN STD_LOGIC;
         s_axis_phase_tdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
         m_axis_data_tvalid : OUT STD_LOGIC;
-        m_axis_data_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0);
-        m_axis_phase_tvalid : OUT STD_LOGIC;
-        m_axis_phase_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0) 
+        m_axis_data_tdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)
       );
     END COMPONENT;
     
@@ -181,16 +179,14 @@ architecture arch_imp of full_radio_v1_0_S00_AXI is
     signal fakeADC_tdata : std_logic_vector (15 downto 0);
     signal fakeADC_tdata_cmp, tuner_tdata : std_logic_vector (31 downto 0);
     signal mixer_tdata : std_logic_vector (47 downto 0);
-    signal fakeADC_tvalid, tuner_tvalid, mixer_tvalid : std_logic;
+    signal fakeADC_tvalid, tuner_tvalid, mixer_tvalid, tuner_on : std_logic;
     
     signal inPhase_fir1_tdata, quadrature_fir1_tdata : std_logic_vector (39 downto 0);
     signal inPhase_fir1_tvalid, quadrature_fir1_tvalid : std_logic;
     signal inPhase_fir2_tdata, quadrature_fir2_tdata : std_logic_vector (23 downto 0);
     signal inPhase_fir2_tvalid, quadrature_fir2_tvalid : std_logic;
     
-    signal tuner_pinc : std_logic_vector (31 downto 0);
-    signal tuner_on : std_logic;
-    signal I_corrected, Q_corrected : std_logic_vector (15 downto 0);
+    signal data_enable : std_logic;
     
     signal timer : unsigned (31 downto 0);
 
@@ -461,27 +457,25 @@ begin
 
 
 	-- Add user logic here
-
     design_rst <= not slv_reg2(0); -- DDS reset
     
     fakeADC_DDS : dds_compiler_0
     PORT MAP (
-    aclk => S_AXI_ACLK,
-    aresetn => design_rst,
-    s_axis_phase_tvalid => '1',
-    s_axis_phase_tdata => slv_reg0,
-    m_axis_data_tvalid => fakeADC_tvalid,
-    m_axis_data_tdata => fakeADC_tdata
+        aclk => S_AXI_ACLK,
+        aresetn => design_rst,
+        s_axis_phase_tvalid => '1',
+        s_axis_phase_tdata => slv_reg0,
+        m_axis_data_tvalid => fakeADC_tvalid,
+        m_axis_data_tdata => fakeADC_tdata
     );
     
     tuner_DDS : dds_compiler_1
     PORT MAP (
-    aclk => S_AXI_ACLK,
-    s_axis_phase_tvalid => '1',
-    s_axis_phase_tdata => slv_reg1,
-    m_axis_data_tvalid => tuner_tvalid,
-    m_axis_data_tdata => tuner_tdata,
-    m_axis_phase_tdata => tuner_pinc
+        aclk => S_AXI_ACLK,
+        s_axis_phase_tvalid => '1',
+        s_axis_phase_tdata => slv_reg1,
+        m_axis_data_tvalid => tuner_tvalid,
+        m_axis_data_tdata => tuner_tdata
     );
     
     fakeADC_tdata_cmp <= "0000000000000000"&fakeADC_tdata;
@@ -533,11 +527,13 @@ begin
         m_axis_data_tdata => quadrature_fir2_tdata
       );
     
-    -- Amplitude corrector
-    tuner_on <= '0' when tuner_pinc = "00000000000000000000000000000000" else '1';
-    --I_corrected <= inPhase_fir2_tdata(14 downto 0)&'0' when tuner_on='0' else inPhase_fir2_tdata(15 downto 0);
-    --Q_corrected <= quadrature_fir2_tdata(14 downto 0)&'0' when tuner_on='0' else quadrature_fir2_tdata(15 downto 0);
-    m_axis_tdata <= inPhase_fir2_tdata(15 downto 0) & quadrature_fir2_tdata(15 downto 0);
+    -- Data and Valid Signals
+    data_enable <= slv_reg2(1); -- Data enable
+    
+    tuner_on <= '0' when slv_reg1 = x"00000000" else '1'; -- amplitude correction
+    m_axis_tdata <= (others=>'0') when data_enable='0' else
+        inPhase_fir2_tdata(15 downto 0) & quadrature_fir2_tdata(15 downto 0) when tuner_on='0' else
+        inPhase_fir2_tdata(14 downto 0) & '0' & quadrature_fir2_tdata(14 downto 0) & '0';
     
     m_axis_tvalid <= inPhase_fir2_tvalid and quadrature_fir2_tvalid;
     
